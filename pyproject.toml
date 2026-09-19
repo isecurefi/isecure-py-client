@@ -5,7 +5,8 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "isecure-client"
 version = "0.1.0"
-description = "Python client SDK for interacting with ISECure banking file exchange REST API"
+description = "Beta Python client SDK for the ISECure banking file exchange REST API"
+classifiers = ["Development Status :: 4 - Beta"]
 readme = "README.md"
 requires-python = ">=3.10,<3.13"
 license = { text = "MIT" }

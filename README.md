@@ -1,6 +1,10 @@
-# ISECure Python Client
+# ISECure Python Client — Beta
 
 This is a client side SDK for interacting with ISECure banking file exchange REST API.
+
+**Status: Beta.** This client has not yet been used in customer integrations.
+Automated tests pass, but real-world usage and production readiness have not been
+established. Evaluate it in your test environment before adopting it.
 
 > The OpenAPI specification for the REST API service this client interacts with is in the linked [wsapi_v2.json](https://www.isecure.fi/wsapi_v2.json) file.
 
@@ -12,7 +16,7 @@ Use Python 3.10–3.12. The current PGP dependency does not support Python 3.13+
 python -m pip install "isecure-client @ git+https://github.com/isecurefi/isecure-py-client.git"
 ```
 
-This is the initial 0.1.0 source release prepared for publication. Installation from GitHub is the
+This is the initial 0.1.0 source release, currently designated Beta. Installation from GitHub is the
 supported instruction here; this repository does not establish a PyPI release.
 
 ## Current coverage
