@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test-and-package:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]" build ruff
+      - name: Lint and type check
+        run: |
+          ruff check .
+          mypy isecure_client tests
+      - name: Test
+        run: python -m pytest
+      - name: Build source and wheel distributions
+        run: python -m build
+      - name: Verify clean wheel installation
+        run: |
+          python -m venv /tmp/isecure-wheel-test
+          /tmp/isecure-wheel-test/bin/python -m pip install dist/*.whl
+          cd /tmp
+          /tmp/isecure-wheel-test/bin/python -c "from isecure_client import ISECureClient, create_pgp_signature, verify_pgp_signature"

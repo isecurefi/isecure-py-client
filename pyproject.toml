@@ -1,0 +1,63 @@
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "isecure-client"
+version = "0.1.0"
+description = "Python client SDK for interacting with ISECure banking file exchange REST API"
+readme = "README.md"
+requires-python = ">=3.10,<3.13"
+license = { text = "MIT" }
+authors = [
+    { name = "ISECure Python Client Contributors", email = "info@isecure.fi" },
+]
+dependencies = [
+    "requests>=2.28.0",
+    "cryptography>=38.0.0",
+    "python-gnupg>=0.4.9",
+    "pgpy (>=0.6.0,<0.7.0)",
+]
+
+[project.urls]
+Repository = "https://github.com/isecurefi/isecure-py-client"
+Documentation = "https://www.isecure.fi/wsapi_v2/"
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0.0", "black>=22.0.0", "isort>=5.0.0", "mypy>=0.900", "types-requests"]
+
+[tool.setuptools]
+packages = ["isecure_client"]
+
+[tool.black]
+line-length = 120
+target-version = ["py310"]
+
+[tool.isort]
+profile = "black"
+line_length = 120
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = false  # Disable return-any warning since we have some API JSON handling
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+
+# Ignore missing stubs for third-party libraries
+[[tool.mypy.overrides]]
+module = ["pgpy", "pgpy.*", "requests", "requests.*"]
+ignore_missing_imports = true
+
+[tool.ruff]
+target-version = "py310"
+line-length = 120
+select = ["E", "F", "B", "I", "N", "W", "UP", "S", "BLE"]
+ignore = ["S303", "S113", "BLE001", "B904", "E402", "S106"]  # Ignore security warnings that can't be fixed
+
+[tool.ruff.format]
+quote-style = "double"
+
+[tool.poetry.group.dev.dependencies]
+pytest-mock = "^3.14.0"
+types-requests = "<2.32.0"
