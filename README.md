@@ -14,8 +14,8 @@ Use Python 3.10–3.12. The current PGP dependency does not support Python 3.13+
 python -m pip install "isecure-client @ git+https://github.com/isecurefi/isecure-py-client.git"
 ```
 
-This is the initial 0.1.0 source release. Installation from GitHub is the
-supported instruction here; this repository does not establish a PyPI release.
+Version 0.1.1 is available from the GitHub release as a wheel and source archive,
+or install the tagged source with `@v0.1.1`. This repository does not establish a PyPI release.
 
 ## Current coverage
 

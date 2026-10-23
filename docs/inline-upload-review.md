@@ -35,4 +35,5 @@ Private evidence is under the C# repository's `.private/inline-upload-evidence-2
 and the Python repository's corresponding directory. It contains credentials and
 must not be published. Existing PGP warnings and packaging/configuration deprecation
 warnings remain; no test failures or type/lint errors remain. No package or API
-documentation was published, and the preparation retains the current package version.
+documentation was published during qualification. The final patch version is 0.1.1,
+distributed through GitHub release assets; the SDK remains Beta.
