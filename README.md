@@ -25,7 +25,9 @@ and verification. It is synchronous and uses an interaction handler for prompts.
 It does not yet match the TypeScript SDK: TOTP enrollment/factor selection,
 certificate operations, file download/deletion, account administration and logout
 are not implemented. See the [TypeScript SDK](https://github.com/isecurefi/isecure-ts-client)
-for broader API coverage. No current end-to-end bank qualification is claimed.
+for broader API coverage. The specific login and inline UploadFile flow was verified
+against gpgtest; see [verification notes](docs/inline-upload-review.md). No real-bank
+production qualification is claimed.
 
 ## Example
 
@@ -41,6 +43,23 @@ local PGP key files. No private keys or account credentials are distributed.
 `test.pem` and `prod.pem` are the API's public RSA encryption keys, not private keys.
 Never commit your credentials or private keys. Test access and bank connections
 must be provisioned separately; registration does not grant paid product access.
+
+## Inline upload reports
+
+`upload_file` returns the bank's response dictionary, including optional Base64
+`Content` when a bank returns a report directly from UploadFile:
+
+```python
+response = client.upload_file(encoded_query, "balance-query.xml", "camt.060.001.02", signature)
+if response.get("ResponseCode") == "00" and "Content" in response:
+    report = base64.b64decode(response["Content"], validate=True)
+```
+
+Import `base64` before using the example. The bank's query and signing requirements
+still apply. Ordinary acknowledgements omit `Content`. The SDK preserves the raw
+encoded field and makes no follow-up download request. HTTP failures continue to
+raise exceptions. Calls that previously ignored the return value remain valid;
+code explicitly expecting `None` should use the returned dictionary instead.
 
 ## Development
 

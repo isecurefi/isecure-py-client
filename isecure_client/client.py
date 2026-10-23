@@ -553,8 +553,15 @@ class ISECureClient:
         except requests.exceptions.HTTPError as e:
             self._handle_api_error(e.response)
 
-    def upload_file(self, file_contents: str, file_name: str, file_type: str, signature: str | None = None) -> None:
-        """Upload a file to the service."""
+    def upload_file(
+        self, file_contents: str, file_name: str, file_type: str, signature: str | None = None
+    ) -> dict[str, Any]:
+        """Upload a file and return the bank's JSON acknowledgement.
+
+        Optional ``Content`` contains an inline Base64 report. It is preserved
+        without decoding or downloading another file. Check ``ResponseCode``
+        before consuming a report; HTTP failures still raise an exception.
+        """
         data = {
             "FileContents": file_contents,
             "FileName": file_name,
@@ -569,9 +576,14 @@ class ISECureClient:
         try:
             response = requests.put(url=url, headers=self._get_headers(), data=json.dumps(data), timeout=30)
             response.raise_for_status()
+            result = response.json()
+            if not isinstance(result, dict):
+                raise ValueError("UploadFile response must be a JSON object")
+            return result
 
         except requests.exceptions.HTTPError as e:
             self._handle_api_error(e.response)
+            raise
 
     def list_files(self, file_type: str = "", file_status: str = "") -> dict[str, Any]:
         """List files from the service."""

@@ -11,3 +11,5 @@ TODO.md
 .env
 .env.*
 *.sec
+
+.private/
