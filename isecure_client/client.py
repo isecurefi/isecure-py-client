@@ -9,6 +9,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Literal, Protocol, cast
+from urllib.parse import urlencode, urlsplit
 
 import requests
 from cryptography.hazmat.backends import default_backend
@@ -17,6 +18,7 @@ from cryptography.hazmat.primitives.asymmetric import padding
 from cryptography.hazmat.primitives.serialization import load_pem_public_key
 
 from .error_strings import ErrorCategory, categorize_error, is_retryable_verification_error
+from .password_profile import PASSWORD_ENCRYPTION_PROFILE, encrypt_password, validate_discovery
 
 
 class LogLevel(Enum):
@@ -61,7 +63,7 @@ class ISECureClient:
 
     company: str
     name: str
-    password: str
+    password: str = field(repr=False)
     email: str
     mode: Mode | str
     phone: str
@@ -73,15 +75,22 @@ class ISECureClient:
     interaction_handler: Any = None  # Type is Any to avoid forward reference issues
     max_code_retries: int = 3  # Maximum number of retries for verification codes
 
+    encryption_profile: str | None = None
+
     # Internal state
-    _access_token: str | None = field(default=None, init=False)
-    _id_token: str | None = field(default=None, init=False)
-    _session: str | None = field(default=None, init=False)
+    _reset_discovery: tuple[tuple[Any, ...], dict[str, str]] | None = field(default=None, init=False, repr=False)
+    _mfa_options: list[str] = field(default_factory=list, init=False, repr=False)
+    _challenge_name: str | None = field(default=None, init=False, repr=False)
+    _access_token: str | None = field(default=None, init=False, repr=False)
+    _id_token: str | None = field(default=None, init=False, repr=False)
+    _session: str | None = field(default=None, init=False, repr=False)
     _api_key: str | None = field(default=None, init=False)
     _logger: logging.Logger = field(init=False)
 
     def __post_init__(self) -> None:
         """Initialize the client after initialization."""
+        if self.encryption_profile not in (None, PASSWORD_ENCRYPTION_PROFILE):
+            raise ValueError("Unsupported password encryption profile")
         # Convert string mode to enum if needed
         if isinstance(self.mode, str):
             self.mode = Mode(self.mode)
@@ -208,7 +217,6 @@ class ISECureClient:
             code = self._get_user_input(prompt_message)
             data = prepare_data(code)
 
-
             try:
                 response = request_method(url=url, headers=self._get_headers(), data=json.dumps(data))
                 response.raise_for_status()
@@ -263,10 +271,10 @@ class ISECureClient:
                     error_msg = f"{error_msg}\nAPI Response: {e.response.text}"
                     raise requests.exceptions.HTTPError(error_msg, response=e.response)
 
-    def _get_encrypted(self, challenge: str) -> str:
+    def _get_encrypted(self, challenge: str, password: str | None = None) -> str:
         """Encrypt password with challenge for authentication."""
         timestamp = int(challenge.split("|")[1])
-        password = self.password
+        password = self.password if password is None else password
         pw_pair = f"{password}||{timestamp}"
 
         # Load public key
@@ -401,6 +409,85 @@ class ISECureClient:
                 error_msg = f"{error_msg}\nAPI Response: {e.response.text}"
             raise requests.exceptions.HTTPError(error_msg, response=e.response) from e
 
+    def _clear_authentication(self) -> None:
+        self._access_token = None
+        self._id_token = None
+        self._session = None
+        self._challenge_name = None
+        self._mfa_options = []
+
+    def _password_identity(self) -> tuple[Any, ...]:
+        return (self.base_url, self.email, self._get_mode_value(), self._api_key, self.encryption_profile)
+
+    def _profile_discovery(self, operation: str) -> dict[str, str]:
+        identity = self._password_identity()
+        endpoint = urlsplit(self.base_url)
+        if endpoint.scheme != "https" or endpoint.username or endpoint.password or endpoint.query or endpoint.fragment:
+            raise ValueError("Password profile requires an HTTPS API endpoint")
+        if self.encryption_profile != PASSWORD_ENCRYPTION_PROFILE:
+            raise ValueError("Unsupported password encryption profile")
+        url = self._get_login_challenge_url() if operation == "login" else self._register_url()
+        if operation == "reset":
+            url += "/password"
+        query = {"EncryptionProfile": PASSWORD_ENCRYPTION_PROFILE}
+        if operation == "register":
+            query["ApiKey"] = self._api_key or "0"
+        response = requests.get(url + "?" + urlencode(query), timeout=30, allow_redirects=False)
+        response.raise_for_status()
+        discovery = validate_discovery(response.json())
+        if identity != self._password_identity():
+            raise ValueError("Client configuration changed during password discovery")
+        return discovery
+
+    def _password_request(self, operation: str, password: str) -> dict[str, str]:
+        if self.encryption_profile is not None:
+            discovery = self._profile_discovery(operation)
+            return {
+                "ChResp": discovery["Challenge"],
+                "EncryptionProfile": discovery["EncryptionProfile"],
+                "KeyId": discovery["KeyId"],
+                "Encrypted": encrypt_password(discovery, password),
+            }
+        challenge = self._get_reg_challenge() if operation == "register" else self._get_sess_challenge()
+        return {"ChResp": challenge, "Encrypted": self._get_encrypted(challenge)}
+
+    def init_password_reset(self) -> None:
+        """Send a reset code; retain only the operation-bound new-profile discovery in memory."""
+        self._reset_discovery = None
+        if self.encryption_profile is not None:
+            identity = self._password_identity()
+            discovery = self._profile_discovery("reset")
+            self._reset_discovery = (identity, discovery)
+        else:
+            response = requests.get(self._register_url() + "/password", timeout=30, allow_redirects=False)
+            response.raise_for_status()
+
+    def reset_password(self, code: str, new_password: str) -> None:
+        """Complete the pending reset once, without retrying or changing authentication state."""
+        if len(code) != 6 or not code.isascii() or not code.isdigit():
+            raise ValueError("A six-digit verification code is required")
+        pending, self._reset_discovery = self._reset_discovery, None
+        if self.encryption_profile is not None:
+            if pending is None or pending[0] != self._password_identity():
+                raise ValueError("Start password reset for the current client configuration")
+            discovery = pending[1]
+            data = {
+                "ChResp": discovery["Challenge"],
+                "EncryptionProfile": discovery["EncryptionProfile"],
+                "KeyId": discovery["KeyId"],
+                "Encrypted": encrypt_password(discovery, new_password),
+            }
+        else:
+            challenge = self._get_sess_challenge()
+            data = {"ChResp": challenge, "Encrypted": self._get_encrypted(challenge, new_password)}
+        response = requests.post(
+            self._register_url() + "/password",
+            headers=self._get_headers(),
+            data=json.dumps({**data, "Code": code}),
+            timeout=30,
+        )
+        response.raise_for_status()
+
     def _handle_login_response(self, response: requests.Response) -> None:
         """Handle login response and additional verification steps if needed."""
         if not response:
@@ -409,6 +496,8 @@ class ISECureClient:
 
         data = response.json()
 
+        self._challenge_name = data.get("ChallengeName")
+        self._mfa_options = [m for m in data.get("MfaOptions", []) if m in ("SMS_MFA", "SOFTWARE_TOKEN_MFA")]
         # Update tokens
         self._access_token = data.get("AccessToken", self._access_token)
         self._session = data.get("Session", self._session)
@@ -419,7 +508,10 @@ class ISECureClient:
         resp_code = data.get("ResponseCode")
 
         # Handle different response scenarios
-        if resp_code == "00" and resp_text == "Give SMS code":
+        if resp_code == "00" and (
+            self._challenge_name in ("SMS_MFA", "SOFTWARE_TOKEN_MFA")
+            or resp_text in ("Give SMS code", "Give authenticator code")
+        ):
             self.login_mfa()
 
         elif resp_code == "00" and resp_text == "User authentication failed. Verify phone number with received SMS.":
@@ -437,16 +529,15 @@ class ISECureClient:
         elif resp_code == "01" and "LimitExceededException: Attempt limit exceeded" in resp_text:
             raise Exception(resp_text)
 
-    def register(self) -> None:
-        """Register a new user with the ISECure service."""
-        challenge = self._get_reg_challenge()
-        encrypted = self._get_encrypted(challenge)
+    def register(self) -> dict[str, Any]:
+        """Register a user and adopt/return its tenant key without logging in."""
+        self._clear_authentication()
+        protected = self._password_request("register", self.password)
 
         data = {
-            "ApiKey": self.api_key,
-            "ChResp": challenge,
+            "ApiKey": self._api_key or "0",
+            **protected,
             "Company": self.company,
-            "Encrypted": encrypted,
             "Name": self.name,
             "Phone": self.phone,
         }
@@ -454,36 +545,68 @@ class ISECureClient:
         url = self._register_url()
 
         try:
-            response = requests.put(url=url, headers=self._get_headers(), data=json.dumps(data), timeout=30)
+            response = requests.put(
+                url=url, headers=self._get_headers(), data=json.dumps(data), timeout=30, allow_redirects=False
+            )
             response.raise_for_status()
+            result: dict[str, Any] = response.json()
+            tenant = result.get("ApiKey")
+            if result.get("ResponseCode") != "00" or not isinstance(tenant, str) or not tenant or tenant == "0":
+                raise ValueError("Invalid registration response")
+            if self._api_key not in (None, "0", tenant):
+                raise ValueError("Registration tenant mismatch")
+            self._api_key = tenant
+            return result
 
         except requests.exceptions.HTTPError as e:
             self._handle_api_error(e.response)
+            raise ValueError("Registration failed") from None
 
     def login(self) -> None:
         """Login to the ISECure service."""
-        challenge = self._get_sess_challenge()
-        encrypted = self._get_encrypted(challenge)
-
-        data = {"ChResp": challenge, "Encrypted": encrypted}
+        self._clear_authentication()
+        data = self._password_request("login", self.password)
 
         url = self._login_url()
 
         try:
-            response = requests.post(url=url, headers=self._get_headers(), data=json.dumps(data), timeout=30)
+            response = requests.post(
+                url=url, headers=self._get_headers(), data=json.dumps(data), timeout=30, allow_redirects=False
+            )
             response.raise_for_status()
 
             self._handle_login_response(response)
         except requests.exceptions.HTTPError as e:
             self._handle_api_error(e.response)
 
+    def select_mfa(self, method: str) -> None:
+        """Select an offered factor during a SELECT_MFA_TYPE challenge."""
+        if self._challenge_name != "SELECT_MFA_TYPE" or method not in self._mfa_options:
+            raise ValueError("MFA method was not offered")
+        response = requests.put(
+            self._login_url() + "/selectmfa",
+            headers=self._get_headers(),
+            data=json.dumps({"MfaType": method, "Session": self._session}),
+            timeout=30,
+        )
+        response.raise_for_status()
+        self._handle_login_response(response)
+
     def login_mfa(self) -> None:
         """Complete login with MFA code."""
-        prompt_message = "Give the SMS login code please: "
+        prompt_message = (
+            "Give the authenticator code please: "
+            if self._challenge_name == "SOFTWARE_TOKEN_MFA"
+            else "Give the SMS login code please: "
+        )
         url = self._login_mfa_url()
 
         def prepare_data(code: str) -> dict[str, Any]:
-            return {"Code": code, "Session": self._session}
+            return {
+                "Code": code,
+                "Session": self._session,
+                **({"ChallengeName": self._challenge_name} if self._challenge_name else {}),
+            }
 
         try:
             self._retry_verification_code(
@@ -609,7 +732,6 @@ class ISECureClient:
             status = response.status_code
             status_text = response.reason
             data = response.json()
-
 
             return {"status": status, "status_text": status_text, "data": data}
         except requests.exceptions.HTTPError as e:
