@@ -89,7 +89,9 @@ class ISECureClient:
 
     def __post_init__(self) -> None:
         """Initialize the client after initialization."""
-        if self.encryption_profile not in (None, PASSWORD_ENCRYPTION_PROFILE):
+        if self.encryption_profile is None:
+            self.encryption_profile = PASSWORD_ENCRYPTION_PROFILE
+        if self.encryption_profile not in ("legacy", PASSWORD_ENCRYPTION_PROFILE):
             raise ValueError("Unsupported password encryption profile")
         # Convert string mode to enum if needed
         if isinstance(self.mode, str):
@@ -341,6 +343,10 @@ class ISECureClient:
         """Update client properties."""
         for key, value in kwargs.items():
             if hasattr(self, key):
+                if key == "encryption_profile":
+                    value = PASSWORD_ENCRYPTION_PROFILE if value is None else value
+                    if value not in ("legacy", PASSWORD_ENCRYPTION_PROFILE):
+                        raise ValueError("Unsupported password encryption profile")
                 setattr(self, key, value)
 
                 # Handle special case for mode
@@ -440,7 +446,7 @@ class ISECureClient:
         return discovery
 
     def _password_request(self, operation: str, password: str) -> dict[str, str]:
-        if self.encryption_profile is not None:
+        if self.encryption_profile != "legacy":
             discovery = self._profile_discovery(operation)
             return {
                 "ChResp": discovery["Challenge"],
@@ -454,7 +460,7 @@ class ISECureClient:
     def init_password_reset(self) -> None:
         """Send a reset code; retain only the operation-bound new-profile discovery in memory."""
         self._reset_discovery = None
-        if self.encryption_profile is not None:
+        if self.encryption_profile != "legacy":
             identity = self._password_identity()
             discovery = self._profile_discovery("reset")
             self._reset_discovery = (identity, discovery)
@@ -467,7 +473,7 @@ class ISECureClient:
         if len(code) != 6 or not code.isascii() or not code.isdigit():
             raise ValueError("A six-digit verification code is required")
         pending, self._reset_discovery = self._reset_discovery, None
-        if self.encryption_profile is not None:
+        if self.encryption_profile != "legacy":
             if pending is None or pending[0] != self._password_identity():
                 raise ValueError("Start password reset for the current client configuration")
             discovery = pending[1]

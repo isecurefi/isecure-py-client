@@ -142,14 +142,15 @@ sequenceDiagram
 ```
 
 
-## Opt-in password profile (gpgtest)
+## Default password profile and legacy migration
 
 Qualification (2026-11-08): this implementation passed local checks and
 bounded hosted registration/login tests on ordinary gpgtest, including Admin MFA
 and 283-byte UTF-8 passwords. RSA-3072 and RSA-4096 login were exercised.
-The stronger profile is currently available on gpgtest only. Existing configuration
-keeps legacy authentication for production; SDK installation does not activate
-the new profile.
+Version 1.0.0 uses the stronger profile by default for password operations.
+It is available on ordinary gpgtest and production V2. Select `encryption_profile="legacy"`
+only for a grandfathered tenant that needs legacy authentication. There is no
+endpoint inference or automatic fallback.
 
 Additional qualification (2026-11-09): this SDK passed Data/Admin TOTP login,
 reset initialization and invalid reset-code rejection against gpgtest Login 28.
@@ -160,13 +161,13 @@ unqualified. Operator-confirmed email/phone attributes do not prove delivery.
 
 This source adds `password-rsa-oaep-sha256-v1` on existing v2 routes. Availability
 is environment-specific: the SDK requires matching server discovery and never
-falls back if an older server ignores the selector. Existing configuration keeps
-the legacy profile. After server policy activation, new tenants must select the
-new profile; grandfathered tenants can use either profile, including new accounts.
+falls back if an older server ignores the selector. New tenants require the
+stronger profile; grandfathered tenants can use either profile, including new accounts.
 
 ```python
-from isecure_client import ISECureClient, PASSWORD_ENCRYPTION_PROFILE
-client = ISECureClient(**settings, encryption_profile=PASSWORD_ENCRYPTION_PROFILE)
+from isecure_client import ISECureClient
+client = ISECureClient(**settings)  # stronger profile by default
+legacy = ISECureClient(**settings, encryption_profile="legacy")
 registration = client.register()  # returns and adopts the tenant API key
 client.init_password_reset()
 client.reset_password(recovery_code, new_password)
@@ -178,4 +179,7 @@ password bytes without normalization. Discovery is not authorization. Admin MFA
 still applies. Do not log password envelopes, tokens, codes or raw auth bodies.
 Reset uses its own discovery; never substitute an InitLogin challenge or
 automatically retry code delivery/password mutation. This feature does not establish
-production availability or NIST/FIPS certification.
+NIST/FIPS certification or successful recovery-code delivery.
+
+Passing `None` or clearing the profile with `update_props(encryption_profile=None)`
+selects the stronger default. Invalid selectors fail before HTTP requests.
