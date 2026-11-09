@@ -14,8 +14,8 @@ Use Python 3.10–3.12. The current PGP dependency does not support Python 3.13+
 python -m pip install "isecure-client @ git+https://github.com/isecurefi/isecure-py-client.git"
 ```
 
-Version 0.1.1 is available from the GitHub release as a wheel and source archive,
-or install the tagged source with `@v0.1.1`. This repository does not establish a PyPI release.
+Version 0.2.0 is available from the GitHub release as a wheel and source archive,
+or install the tagged source with `@v0.2.0`. This repository does not establish a PyPI release.
 
 ## Current coverage
 
@@ -142,12 +142,14 @@ sequenceDiagram
 ```
 
 
-## Opt-in password profile (unpublished preview)
+## Opt-in password profile (gpgtest)
 
-Qualification (2026-11-08): this unpublished source passed local checks and
+Qualification (2026-11-08): this implementation passed local checks and
 bounded hosted registration/login tests on ordinary gpgtest, including Admin MFA
 and 283-byte UTF-8 passwords. RSA-3072 and RSA-4096 login were exercised.
-Production authentication deployment and SDK publication remain excluded.
+The stronger profile is currently available on gpgtest only. Existing configuration
+keeps legacy authentication for production; SDK installation does not activate
+the new profile.
 
 Additional qualification (2026-11-09): this SDK passed Data/Admin TOTP login,
 reset initialization and invalid reset-code rejection against gpgtest Login 28.
@@ -175,5 +177,5 @@ label. The binary envelope binds the exact challenge and preserves 1–283 UTF-8
 password bytes without normalization. Discovery is not authorization. Admin MFA
 still applies. Do not log password envelopes, tokens, codes or raw auth bodies.
 Reset uses its own discovery; never substitute an InitLogin challenge or
-automatically retry code delivery/password mutation. This preview is not a
-production availability or NIST/FIPS certification claim.
+automatically retry code delivery/password mutation. This feature does not establish
+production availability or NIST/FIPS certification.
