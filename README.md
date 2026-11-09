@@ -14,8 +14,8 @@ Use Python 3.10–3.12. The current PGP dependency does not support Python 3.13+
 python -m pip install "isecure-client @ git+https://github.com/isecurefi/isecure-py-client.git"
 ```
 
-Version 0.1.1 is available from the GitHub release as a wheel and source archive,
-or install the tagged source with `@v0.1.1`. This repository does not establish a PyPI release.
+Version 0.2.0 is available from the GitHub release as a wheel and source archive,
+or install the tagged source with `@v0.2.0`. This repository does not establish a PyPI release.
 
 ## Current coverage
 
@@ -140,3 +140,42 @@ sequenceDiagram
     Client->>Service: Submit SMS code
     Service->>Client: Login successful
 ```
+
+
+## Opt-in password profile (gpgtest)
+
+Qualification (2026-11-08): this implementation passed local checks and
+bounded hosted registration/login tests on ordinary gpgtest, including Admin MFA
+and 283-byte UTF-8 passwords. RSA-3072 and RSA-4096 login were exercised.
+The stronger profile is currently available on gpgtest only. Existing configuration
+keeps legacy authentication for production; SDK installation does not activate
+the new profile.
+
+Additional qualification (2026-11-09): this SDK passed Data/Admin TOTP login,
+reset initialization and invalid reset-code rejection against gpgtest Login 28.
+The reset reached Cognito and was refused with CodeMismatchException. Login also
+passed after an operator-managed synthetic password change. That change is not
+a public password-reset test: successful reset with a delivered code remains
+unqualified. Operator-confirmed email/phone attributes do not prove delivery.
+
+This source adds `password-rsa-oaep-sha256-v1` on existing v2 routes. Availability
+is environment-specific: the SDK requires matching server discovery and never
+falls back if an older server ignores the selector. Existing configuration keeps
+the legacy profile. After server policy activation, new tenants must select the
+new profile; grandfathered tenants can use either profile, including new accounts.
+
+```python
+from isecure_client import ISECureClient, PASSWORD_ENCRYPTION_PROFILE
+client = ISECureClient(**settings, encryption_profile=PASSWORD_ENCRYPTION_PROFILE)
+registration = client.register()  # returns and adopts the tenant API key
+client.init_password_reset()
+client.reset_password(recovery_code, new_password)
+```
+
+The profile uses direct RSA-3072/4096 OAEP with SHA-256/MGF1-SHA-256 and an empty
+label. The binary envelope binds the exact challenge and preserves 1–283 UTF-8
+password bytes without normalization. Discovery is not authorization. Admin MFA
+still applies. Do not log password envelopes, tokens, codes or raw auth bodies.
+Reset uses its own discovery; never substitute an InitLogin challenge or
+automatically retry code delivery/password mutation. This feature does not establish
+production availability or NIST/FIPS certification.
